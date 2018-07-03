@@ -69,7 +69,8 @@ set -- "${POSITIONAL[@]}" # restore positional parameters
 
 if [[ ${#POSITIONAL[@]} -lt 2 ]]
 then
-	>&2 echo "Usage: $0 [options] server command..."
+	me=`basename "$0"`
+	>&2 echo "Usage: $me [options] server command..."
   exit
 fi
 

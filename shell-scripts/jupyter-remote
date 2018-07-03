@@ -75,7 +75,8 @@ set -- "${POSITIONAL[@]}" # restore positional parameters
 
 if [[ ${#POSITIONAL[@]} -ne 1 ]]
 then
-	>&2 echo "Usage: $0 [options] server"
+	me=`basename "$0"`
+	>&2 echo "Usage: $me [options] server"
   exit
 fi
 
