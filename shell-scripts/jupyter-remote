@@ -1,0 +1,133 @@
+#!/bin/bash
+
+# Launch a jupyter notebook server on a remote machine, 
+# set up ssh tunnels and optionally share the local
+# working directory to the remote machine to use as 
+# the root directory for the notebook server
+#
+# 20180703 Initial version. Jonathon Hare <jsh2@ecs.soton.ac.uk>
+
+# search for available ports to open
+# first and only argument is the initial search position
+findports() {
+	echo `netstat -aln | awk '
+	  $6 == "LISTEN" {
+	    if ($4 ~ "[.:][0-9]+$") {
+	      split($4, a, /[:.]/);
+	      port = a[length(a)];
+	      p[port] = 1
+	    }
+	  }
+	  END {
+	    for (i = '$1'; i < 65000 && p[i]; i++){};
+	    if (i == 65000) {exit 1};
+	    print i
+	  }
+	'`
+}
+
+PORT=$(findports 8000)
+LOCALPORT=$( findports $((PORT + 1)) )
+REMOTEFSPORT=$( findports $((LOCALPORT + 1)) )
+REMOTEBASE="/tmp/"
+HASREMOTEBASE=NO
+NOFS=NO
+
+# See https://stackoverflow.com/questions/192249/how-do-i-parse-command-line-arguments-in-bash
+POSITIONAL=()
+while [[ $# -gt 0 ]]
+do
+	key="$1"
+
+	case $key in
+		-f|--no-fs)
+	    NOFS=YES
+	    shift # past argument
+	    ;;
+	    -r|--remote-port)
+	    PORT="$2"
+	    shift # past argument
+	    shift # past value
+	    ;;
+	    -l|--local-port)
+	    LOCALPORT="$2"
+	    shift # past argument
+	    shift # past value
+	    ;;
+	    -rf|--remote-fs-port)
+	    REMOTEFSPORT="$2"
+	    shift # past argument
+	    shift # past value
+	    ;;
+	    -rb|--remote-basedir)
+	    REMOTEBASE="$2"
+	    HASREMOTEBASE=YES
+	    shift # past argument
+	    shift # past value
+	    ;;
+	    *)    # unknown option
+	    POSITIONAL+=("$1") # save it in an array for later
+	    shift # past argument
+	    ;;
+	esac
+done
+set -- "${POSITIONAL[@]}" # restore positional parameters
+
+if [[ ${#POSITIONAL[@]} -ne 1 ]]
+then
+	>&2 echo "Usage: $0 [options] server"
+  exit
+fi
+
+SERVER=${POSITIONAL[0]}
+
+HOSTNAME=`hostname`
+CWD=`pwd`
+LOCALDIR=`echo $HOSTNAME$CWD | sed -e s/[/]/\_/g`
+LOCALDIR=`echo $REMOTEBASE/$LOCALDIR`
+
+if [ $NOFS != YES ]
+then
+	# See https://superuser.com/questions/616182/how-to-mount-local-directory-to-remote-like-sshfs
+	# Note that the connection will remain open until the remote is done with it (e.g. unmounts the local fs)
+	ssh -f $SERVER -R $REMOTEFSPORT:localhost:22 "mkdir -p $LOCALDIR; sshfs -p $REMOTEFSPORT -o idmap=user,nonempty -o NoHostAuthenticationForLocalhost=yes $USER@127.0.0.1:$CWD $LOCALDIR"
+else
+	if [ $HASREMOTEBASE = YES ]
+	then
+		LOCALDIR=$REMOTEBASE
+	else
+		LOCALDIR=""
+	fi
+fi
+sleep 1
+ssh -f -L localhost:$LOCALPORT:localhost:$PORT $SERVER "cd $LOCALDIR; jupyter notebook --no-browser --port=$PORT"
+
+if [ $NOFS != YES ]
+then
+	# This stops the notebook server and tells fuse to unmount the fs when it has finished syncing when the script exits
+	# In both cases the underlying ssh connections will shutdown when the ports become free
+	trap "{ echo 'Performing Shutdown'; ssh $SERVER 'jupyter notebook stop $PORT'; ssh $SERVER 'fusermount -uz $LOCALDIR'; }" EXIT
+else
+	trap "{ echo 'Performing Shutdown'; ssh $SERVER 'jupyter notebook stop $PORT'; }" EXIT
+fi
+
+sleep 2
+
+# open the local url in the default browser
+case "$OSTYPE" in
+   cygwin*)
+      OPEN="cmd /c cygstart"
+      ;;
+   linux*)
+      OPEN="xdg-open"
+      ;;
+   darwin*)
+      OPEN="open"
+      ;;
+esac
+$OPEN "http://localhost:$LOCALPORT"
+
+while :
+do
+	sleep 60
+done

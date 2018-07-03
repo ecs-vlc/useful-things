@@ -1,0 +1,18 @@
+#!/bin/sh
+
+if [ $# -eq 0 ]
+then
+	ARGS=(enki myrtle athena minerva frank)
+else
+	ARGS=$@
+fi
+
+for var in ${ARGS[@]}
+do
+	echo ""
+	echo ""
+	echo "+-----------------------------------------------------------------------------+"
+	printf '| %-75s |\n' "$var"
+	echo "+-----------------------------------------------------------------------------+"
+    ssh $var nvidia-smi
+done

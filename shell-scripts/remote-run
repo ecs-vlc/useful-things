@@ -1,0 +1,111 @@
+#!/bin/bash
+
+# Launch a command on a remote machine, and set up 
+# ssh tunnels and optionally share the local
+# working directory to the remote machine to use as 
+# the root directory for the command
+#
+# 20180703 Initial version. Jonathon Hare <jsh2@ecs.soton.ac.uk>
+
+# search for available ports to open
+# first and only argument is the initial search position
+findports() {
+	echo `netstat -aln | awk '
+	  $6 == "LISTEN" {
+	    if ($4 ~ "[.:][0-9]+$") {
+	      split($4, a, /[:.]/);
+	      port = a[length(a)];
+	      p[port] = 1
+	    }
+	  }
+	  END {
+	    for (i = '$1'; i < 65000 && p[i]; i++){};
+	    if (i == 65000) {exit 1};
+	    print i
+	  }
+	'`
+}
+
+LOCALPORT=$( findports 8000 )
+REMOTEFSPORT=$( findports $((LOCALPORT + 1)) )
+REMOTEBASE="/tmp/"
+HASREMOTEBASE=NO
+NOFS=NO
+
+# See https://stackoverflow.com/questions/192249/how-do-i-parse-command-line-arguments-in-bash
+POSITIONAL=()
+while [[ $# -gt 0 ]]
+do
+	key="$1"
+
+	case $key in
+		-f|--no-fs)
+	    NOFS=YES
+	    shift # past argument
+	    ;;
+	    -l|--local-port)
+	    LOCALPORT="$2"
+	    shift # past argument
+	    shift # past value
+	    ;;
+	    -rf|--remote-fs-port)
+	    REMOTEFSPORT="$2"
+	    shift # past argument
+	    shift # past value
+	    ;;
+	    -rb|--remote-basedir)
+	    REMOTEBASE="$2"
+	    HASREMOTEBASE=YES
+	    shift # past argument
+	    shift # past value
+	    ;;
+	    *)    # unknown option
+	    POSITIONAL+=("$1") # save it in an array for later
+	    shift # past argument
+	    ;;
+	esac
+done
+set -- "${POSITIONAL[@]}" # restore positional parameters
+
+if [[ ${#POSITIONAL[@]} -lt 2 ]]
+then
+	>&2 echo "Usage: $0 [options] server command..."
+  exit
+fi
+
+SERVER=${POSITIONAL[0]}
+COMMAND=""
+for index in ${POSITIONAL[@]:1}
+do
+    COMMAND="$COMMAND $index"
+done
+
+HOSTNAME=`hostname`
+CWD=`pwd`
+
+if [ $NOFS != YES ]
+then
+	LOCALDIR=`echo $HOSTNAME$CWD | sed -e s/[/]/\_/g`
+	LOCALDIR=`echo $REMOTEBASE/$LOCALDIR`
+
+	# See https://superuser.com/questions/616182/how-to-mount-local-directory-to-remote-like-sshfs
+	# Note that the connection will remain open until the remote is done with it (e.g. unmounts the local fs)
+	ssh -f $SERVER -R $REMOTEFSPORT:localhost:22 "mkdir -p $LOCALDIR; sshfs -p $REMOTEFSPORT -o idmap=user,nonempty -o NoHostAuthenticationForLocalhost=yes $USER@127.0.0.1:$CWD $LOCALDIR"
+	sleep 1
+else
+	if [ $HASREMOTEBASE = YES ]
+	then
+		LOCALDIR=$REMOTEBASE
+	else
+		LOCALDIR=""
+	fi
+fi
+
+if [ $NOFS != YES ]
+then
+	# This tells fuse to unmount the fs when it has finished syncing when the script exits
+	# The underlying ssh connections will shutdown when the ports become free
+	trap "{ ssh $SERVER 'fusermount -uz $LOCALDIR'; }" EXIT
+fi
+
+ssh -q -t $SERVER "cd $LOCALDIR; $COMMAND"
