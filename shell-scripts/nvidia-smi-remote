@@ -1,5 +1,10 @@
 #!/bin/sh
 
+# Print nvidia-smi stats from multiple servers
+#
+# 20180703 Initial version. Jonathon Hare <jsh2@ecs.soton.ac.uk>
+
+
 if [ $# -eq 0 ]
 then
 	ARGS=(enki myrtle athena minerva frank)
