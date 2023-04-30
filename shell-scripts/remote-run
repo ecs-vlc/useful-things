@@ -91,7 +91,7 @@ then
 
 	# See https://superuser.com/questions/616182/how-to-mount-local-directory-to-remote-like-sshfs
 	# Note that the connection will remain open until the remote is done with it (e.g. unmounts the local fs)
-	ssh -f $SERVER -R $REMOTEFSPORT:localhost:22 "mkdir -p $LOCALDIR; sshfs -p $REMOTEFSPORT -o idmap=user,nonempty -o NoHostAuthenticationForLocalhost=yes $USER@127.0.0.1:$CWD $LOCALDIR"
+	ssh -f $SERVER -R $REMOTEFSPORT:localhost:22 "mkdir -p $LOCALDIR; sshfs -p $REMOTEFSPORT -o idmap=user -o NoHostAuthenticationForLocalhost=yes $USER@127.0.0.1:$CWD $LOCALDIR"
 	sleep 1
 else
 	if [ $HASREMOTEBASE = YES ]
